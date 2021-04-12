@@ -5,7 +5,8 @@ author        = "Jaremy J. Creechley"
 description   = "Some JSON command line utilities"
 license       = "MIT"
 srcDir        = "src"
-bin           = @["jn"]
+binDir        = "bin"
+bin           = @["jn", "jn2csv"]
 
 
 # Dependencies
