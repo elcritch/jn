@@ -4,8 +4,12 @@
 import json
 import tables
 import sets
+import sequtils
+import strutils
 
-var debugging = false
+var
+  debugging = false
+  lineErrors = false
 
 proc readAllJsonLines*(f: File): seq[TaintedString] =
   # no real good way around this for stream inputs
@@ -19,30 +23,29 @@ proc readAllJsonLines*(f: File): seq[TaintedString] =
       echo "Error reading json lines input"
       raise err
 
-
 type
   Jitter* = iterator(): JsonNode {.closure.}
 
-# iterator jsonLines*(lines: seq[TaintedString]): JsonNode {.closure.} =
-proc jsonLines*(lines: seq[TaintedString]): Jitter =
-  iterator jsonLines(): JsonNode {.closure.} =
-    for line in lines:
-      try:
-        var js: JsonNode = line.parseJson()
-        yield js
-      except Exception as err:
-        if debugging == true:
-          stderr.writeLine "Error parsing json lines: ", repr line
-        # raise err
-  return jsonLines
+iterator nodes*(lines: seq[TaintedString]): JsonNode {.closure.} =
+  for line in lines:
+    try:
+      var js: JsonNode = line.parseJson()
+      yield js
+    except Exception as err:
+      if debugging:
+        stderr.writeLine "Error parsing json lines: ", repr line
+      if lineErrors:
+        raise err
+      else:
+        continue
 
-proc scanForKeys(jlines: Jitter): HashSet[string] =
+proc scanForKeys(lines: seq[TaintedString]): HashSet[string] =
   var keys = initHashSet[string]() 
 
-  stderr.writeLine "keys:len: ", $keys
-  for jl in jlines():
-    if jl.kind == JObject:
-      for k in jl.keys:
+  # stderr.writeLine "json:len: ", $lines.len()
+  for jn in nodes(lines):
+    if jn.kind == JObject:
+      for k in jn.keys:
         var s: string = k
         keys.incl(s)
     else:
@@ -51,17 +54,56 @@ proc scanForKeys(jlines: Jitter): HashSet[string] =
   result = keys
 
 
-proc execIoStream(fl: File) =
+proc toCols(cols: HashSet[string], jdata: seq[string]): Table[string, seq[string]] =
+  result = initTable[string, seq[string]](jdata.len())
+  for col in cols:
+    result[col] = @[]
+
+  for jn in nodes(jdata):
+    for colName in cols:
+      let
+        val = jn[colName]
+        # valStr: string = if val == nil: "" else: val.getStr()
+        valStr: string = $val
+      result[colName].add(valStr)
+
+proc print(headers: seq[string], columns: seq[seq[string]]) =
+  # Headers
+  echo headers.join(",")
+
+  if headers.len() == 0:
+    return
+
+  let
+    colLens = columns.mapIt(it.len())
+    rowCount = colLens.max()
+
+  assert rowCount == colLens.min()
+
+  # Columns
+  for row in 0..<rowCount:
+    stdout.writeLine(columns.mapIt(it[row]).join(","))
+
+proc execIoStream*(fl: File) =
 
   let
     jdata = fl.readAllJsonLines()
-    jiter: Jitter = jdata.jsonLines
-    jkeys = jiter.scanForKeys()
+    jkeys = jdata.scanForKeys()
 
-  echo "jkeys: ", $jkeys
+  # stderr.writeLine "jn:jkeys: ", $jkeys
+
+  let
+    columnMaps = toCols(jkeys, jdata)
+    headers: seq[string] = jkeys.mapIt(it)
+    columns = headers.mapIt(columnMaps[it])
+
+  # stderr.writeLine "jn:columns: ", $columns.len()
+  # for c, cd in columnMaps.pairs():
+    # stderr.writeLine "jn:columns: ", c, ": ", $cd.len()
+
+  print(headers, columns)
 
 
 when isMainModule:
-  echo("jn2csv")
   execIoStream(stdin)
 
