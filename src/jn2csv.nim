@@ -10,19 +10,23 @@ import strutils
 let
   debugging = false
   lineErrors = false
-  skipLines = 0
+  skipLines = 4
 
 proc readAllJsonLines*(f: File): seq[JsonNode] =
   # no real good way around this for stream inputs
   result = newSeq[JsonNode]()
 
-  var line: string
+  var
+    line: string
+    idx = 0
   while stdin.readLine(line):
     try:
-      result.add(line.parseJson())
+      inc idx
+      if idx mod skipLines == 0:
+        result.add(line.parseJson())
+      else:
+        continue
     except Exception as err:
-      # echo "Error reading json lines input"
-      # raise err
       if debugging:
         stderr.writeLine "Error parsing json lines: ", repr line
       if lineErrors:
@@ -36,8 +40,6 @@ type
 proc scanForKeys(lines: seq[JsonNode]): HashSet[string] =
   var keys = initHashSet[string]() 
 
-  # stderr.writeLine "json:len: ", $lines.len()
-  # for jn in nodes(lines):
   for jn in lines:
     if jn.kind == JObject:
       for k in jn.keys:
