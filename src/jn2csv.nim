@@ -7,31 +7,22 @@ import sets
 import sequtils
 import strutils
 
-var
+let
   debugging = false
   lineErrors = false
+  skipLines = 0
 
-proc readAllJsonLines*(f: File): seq[TaintedString] =
+proc readAllJsonLines*(f: File): seq[JsonNode] =
   # no real good way around this for stream inputs
-  result = newSeq[TaintedString]()
+  result = newSeq[JsonNode]()
 
   var line: string
   while stdin.readLine(line):
     try:
-      result.add(line)
+      result.add(line.parseJson())
     except Exception as err:
-      echo "Error reading json lines input"
-      raise err
-
-type
-  Jitter* = iterator(): JsonNode {.closure.}
-
-iterator nodes*(lines: seq[TaintedString]): JsonNode {.closure.} =
-  for line in lines:
-    try:
-      var js: JsonNode = line.parseJson()
-      yield js
-    except Exception as err:
+      # echo "Error reading json lines input"
+      # raise err
       if debugging:
         stderr.writeLine "Error parsing json lines: ", repr line
       if lineErrors:
@@ -39,11 +30,15 @@ iterator nodes*(lines: seq[TaintedString]): JsonNode {.closure.} =
       else:
         continue
 
-proc scanForKeys(lines: seq[TaintedString]): HashSet[string] =
+type
+  Jitter* = iterator(): JsonNode {.closure.}
+
+proc scanForKeys(lines: seq[JsonNode]): HashSet[string] =
   var keys = initHashSet[string]() 
 
   # stderr.writeLine "json:len: ", $lines.len()
-  for jn in nodes(lines):
+  # for jn in nodes(lines):
+  for jn in lines:
     if jn.kind == JObject:
       for k in jn.keys:
         var s: string = k
@@ -54,12 +49,12 @@ proc scanForKeys(lines: seq[TaintedString]): HashSet[string] =
   result = keys
 
 
-proc toCols(cols: HashSet[string], jdata: seq[string]): Table[string, seq[string]] =
+proc toCols(cols: HashSet[string], jdata: seq[JsonNode]): Table[string, seq[string]] =
   result = initTable[string, seq[string]](jdata.len())
   for col in cols:
     result[col] = @[]
 
-  for jn in nodes(jdata):
+  for jn in jdata:
     for colName in cols:
       let
         val = jn[colName]
